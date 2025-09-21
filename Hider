@@ -1,0 +1,47 @@
+(function() {
+  let d = document.createElement('div');
+  d.id = 'draggable-widget';
+  d.style = 'width:200px;min-height:50px;background:#4CAF50;color:white;padding:10px;position:fixed;top:100px;left:100px;cursor:move;z-index:9999;border-radius:8px;box-shadow:0 2px 8px #0003;transition:width 0.2s;';
+  d.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-weight:bold;">Expandable Widget</span>
+      <button id="expand-btn" style="background:#fff3;color:#333;border:none;padding:2px 8px;border-radius:5px;cursor:pointer;font-size:14px;">Expand</button>
+    </div>
+    <div id="widget-content" style="margin-top:10px;display:none;">
+      <p>This is the expanded content! You can put whatever you want here.</p>
+    </div>
+  `;
+  document.body.appendChild(d);
+
+  // Draggable logic
+  let isDragging = false, offsetX, offsetY;
+  d.addEventListener('mousedown', function(e) {
+    // Prevent dragging when clicking on the button
+    if (e.target.id === 'expand-btn') return;
+    isDragging = true;
+    offsetX = e.clientX - d.offsetLeft;
+    offsetY = e.clientY - d.offsetTop;
+    d.style.transition = 'none';
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (isDragging) {
+      d.style.left = (e.clientX - offsetX) + 'px';
+      d.style.top = (e.clientY - offsetY) + 'px';
+    }
+  });
+  document.addEventListener('mouseup', function() {
+    isDragging = false;
+    d.style.transition = '';
+  });
+
+  // Expand/collapse logic
+  let expanded = false;
+  let btn = d.querySelector('#expand-btn');
+  let content = d.querySelector('#widget-content');
+  btn.addEventListener('click', function() {
+    expanded = !expanded;
+    content.style.display = expanded ? 'block' : 'none';
+    btn.textContent = expanded ? 'Collapse' : 'Expand';
+    d.style.width = expanded ? '300px' : '200px';
+  });
+})();
