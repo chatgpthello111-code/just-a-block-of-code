@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""
+Simple, read-only Sophos presence detector.
+Scans running processes, open services (where available), common install paths, and package lists for
+strings containing "sophos" (case-insensitive). DOES NOT disable or modify anything.
+"""
+
+import os
+import sys
+import platform
+import psutil
+from pathlib import Path
+
+KEYWORD = "sophos"
+
+def find_processes():
+    results = []
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+        try:
+            name = (proc.info.get('name') or '') or ''
+            exe = (proc.info.get('exe') or '') or ''
+            cmd = ' '.join(proc.info.get('cmdline') or [])
+            hay = ' '.join([name, exe, cmd]).lower()
+            if KEYWORD in hay:
+                results.append({
+                    'pid': proc.info.get('pid'),
+                    'name': name,
+                    'exe': exe,
+                    'cmdline': cmd
+                })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return results
+
+def check_common_paths():
+    # Common locations (non-exhaustive). This only checks existence.
+    paths = []
+    system = platform.system().lower()
+    if system == 'windows':
+        candidates = [
+            os.path.join(os.environ.get('ProgramFiles', ''), 'Sophos'),
+            os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'Sophos'),
+            r"C:\Program Files\Sophos",
+            r"C:\Program Files (x86)\Sophos",
+            r"C:\ProgramData\Sophos"
+        ]
+    elif system == 'darwin':  # macOS
+        candidates = [
+            "/Library/Sophos Anti-Virus",
+            "/Library/Application Support/Sophos",
+            "/opt/sophos",
+            "/Library/LaunchDaemons/com.sophos.*"
+        ]
+    else:  # linux / other
+        candidates = [
+            "/opt/sophos",
+            "/usr/local/sophos",
+            "/etc/sophos",
+            "/var/lib/sophos"
+        ]
+    for p in candidates:
+        try:
+            exists = Path(p).exists()
+        except Exception:
+            exists = False
+        paths.append((p, exists))
+    return paths
+
+def check_installed_packages():
+    # Check pip-installed packages for "sophos" mention
+    pip_matches = []
+    try:
+        import pkg_resources
+        for dist in pkg_resources.working_set:
+            if KEYWORD in dist.project_name.lower() or KEYWORD in (dist.summary or '').lower():
+                pip_matches.append((dist.project_name, dist.version))
+    except Exception:
+        # Fallback: call pip list
+        try:
+            import subprocess
+            out = subprocess.check_output([sys.executable, '-m', 'pip', 'list', '--format=columns'], text=True)
+            for line in out.splitlines()[2:]:
+                if KEYWORD in line.lower():
+                    pip_matches.append(line.strip())
+        except Exception:
+            pass
+    return pip_matches
+
+def check_system_services():
+    system = platform.system().lower()
+    matches = []
+    if system == 'windows':
+        # Try using win32service if available, otherwise use sc query via subprocess
+        try:
+            import subprocess
+            out = subprocess.check_output(['sc', 'query', 'type=', 'service'], text=True, stderr=subprocess.DEVNULL)
+            for line in out.splitlines():
+                if KEYWORD in line.lower():
+                    matches.append(line.strip())
+        except Exception:
+            pass
+    elif system == 'linux' or system == 'darwin':
+        try:
+            import subprocess
+            # systemctl might not be present everywhere; this is a best-effort read-only probe
+            out = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
+            for line in out.stdout.splitlines():
+                if KEYWORD in line.lower():
+                    matches.append(line.strip())
+        except Exception:
+            pass
+    return matches
+
+def main():
+    print("Sophos presence detector — read-only scan\n")
+    print(f"Platform: {platform.platform()}\n")
+
+    print("1) Scanning running processes for 'sophos'...\n")
+    procs = find_processes()
+    if procs:
+        for p in procs:
+            print(f"PID {p['pid']:>6}  Name: {p['name']}\n    exe: {p['exe']}\n    cmd: {p['cmdline']}\n")
+    else:
+        print("No matching processes found.\n")
+
+    print("2) Checking common filesystem locations...\n")
+    for path, exists in check_common_paths():
+        print(f"{path} -> {'FOUND' if exists else 'not found'}")
+    print()
+
+    print("3) Checking pip-installed packages mentioning 'sophos'...\n")
+    pkgs = check_installed_packages()
+    if pkgs:
+        for p in pkgs:
+            print("  " + (f"{p[0]} {p[1]}" if isinstance(p, tuple) else str(p)))
+    else:
+        print("No pip packages matching 'sophos' found.\n")
+
+    print("4) Checking services / process list for matches (best-effort)...\n")
+    services = check_system_services()
+    if services:
+        for s in services[:30]:
+            print(s)
+    else:
+        print("No service/process lines matched 'sophos'.\n")
+
+    print("\nScan complete. This script only reads system state and does not change anything.\n")
+    print("If this machine belongs to your organization and Sophos is installed, consult your IT/admin team or Sophos Support for removal/uninstallation steps.")
+    print("If you want, paste the output here and I can help interpret it.")
+
+if __name__ == '__main__':
+    main()
